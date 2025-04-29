@@ -1,17 +1,43 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, ActivityIndicator, Linking } from 'react-native';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  TouchableOpacity, 
+  Image, 
+  ScrollView, 
+  ActivityIndicator, 
+  Linking 
+} from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
-import { uploadToCloudinary, getOptimizedUrl } from '../../libs/index';
-import { downloadFile } from '../../libs/index';
-import { FileSystem } from 'expo-file-system';
+import { uploadToCloudinary, getOptimizedUrl, downloadFile } from '../../libs/index';
+import * as FileSystem from 'expo-file-system';
 import { Icon } from 'react-native-elements';
 import Pdf from 'react-native-pdf';
 
+// Define types for our file objects
+type FileType = 'image' | 'video' | 'pdf';
+type ResourceType = 'image' | 'video' | 'raw';
+
+interface UploadedFile {
+  url: string;
+  publicId: string;
+  type: ResourceType;
+  name: string;
+  localUri: string;
+}
+
+interface Asset {
+  uri: string;
+  name?: string;
+  mimeType?: string;
+}
+
 const FileScreen = () => {
-  const [files, setFiles] = useState([]);
-  const [uploading, setUploading] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const [files, setFiles] = useState<UploadedFile[]>([]);
+  const [uploading, setUploading] = useState<boolean>(false);
+  const [progress, setProgress] = useState<number>(0);
 
   const selectImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -21,7 +47,7 @@ const FileScreen = () => {
       allowsMultipleSelection: true,
     });
 
-    if (!result.canceled) {
+    if (!result.canceled && result.assets) {
       handleUpload(result.assets, 'image');
     }
   };
@@ -32,13 +58,14 @@ const FileScreen = () => {
       multiple: true,
     });
 
-    if (!result.canceled) {
-      handleUpload(result.assets, result.assets[0].mimeType.includes('image') ? 'image' : 
-        result.assets[0].mimeType.includes('video') ? 'video' : 'pdf');
+    if (!result.canceled && result.assets) {
+      const type: FileType = result.assets[0].mimeType?.includes('image') ? 'image' : 
+        result.assets[0].mimeType?.includes('video') ? 'video' : 'pdf';
+      handleUpload(result.assets, type);
     }
   };
 
-  const handleUpload = async (assets, type) => {
+  const handleUpload = async (assets: Asset[], type: FileType) => {
     setUploading(true);
     setProgress(0);
     
@@ -47,19 +74,19 @@ const FileScreen = () => {
         const response = await uploadToCloudinary(
           asset.uri, 
           type,
-          (progressEvent) => {
+          (progressEvent: { loaded: number; total: number }) => {
             const progress = Math.round((progressEvent.loaded / progressEvent.total) * 100);
             setProgress(progress);
           }
         );
-        
+
         return {
           url: response.secure_url,
           publicId: response.public_id,
           type: response.resource_type,
           name: asset.name || `file_${Date.now()}`,
           localUri: asset.uri,
-        };
+        } as UploadedFile;
       });
       
       const uploadedFiles = await Promise.all(uploadPromises);
@@ -73,7 +100,7 @@ const FileScreen = () => {
     }
   };
 
-  const previewFile = (file) => {
+  const previewFile = (file: UploadedFile) => {
     if (file.type === 'image') {
       return (
         <Image 
@@ -101,11 +128,10 @@ const FileScreen = () => {
     }
   };
 
-  const downloadFile = async (file) => {
+  const handleDownload = async (file: UploadedFile) => {
     try {
       const localUri = await downloadFile(file.url);
       alert(`File downloaded to: ${localUri}`);
-      // Optionally open the file
       await Linking.openURL(localUri);
     } catch (error) {
       console.error('Download error:', error);
@@ -146,8 +172,8 @@ const FileScreen = () => {
       
       <ScrollView style={styles.filesContainer}>
         {files.map((file, index) => (
-          <View key={index} style={styles.fileCard}>
-            <TouchableOpacity onPress={() => downloadFile(file)}>
+          <View key={`${file.publicId}-${index}`} style={styles.fileCard}>
+            <TouchableOpacity onPress={() => handleDownload(file)}>
               {previewFile(file)}
             </TouchableOpacity>
             
@@ -166,7 +192,7 @@ const FileScreen = () => {
                 
                 <TouchableOpacity 
                   style={styles.actionButton}
-                  onPress={() => downloadFile(file)}
+                  onPress={() => handleDownload(file)}
                 >
                   <Icon name="file-download" size={20} color="#6200ee" />
                   <Text style={styles.actionText}>Download</Text>
